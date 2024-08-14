@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"time"
 )
 
 // 设置 Gemini API 密钥
@@ -18,6 +19,10 @@ var ChatTemperture = 0.5
 
 // GeminiChat: Input a message and get the response string.
 func GeminiChat(w http.ResponseWriter, r *http.Request) {
+	// Add CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:4200") // Replace with the actual origin of your client application
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	ctx := context.Background()
 	// Access your API key as an environment variable (see "Set up your API key" above)
 	client, err := genai.NewClient(ctx, option.WithAPIKey(geminiKey))
@@ -47,7 +52,18 @@ func GeminiChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send response as plain text
-	fmt.Fprintf(w, "%s", printResponse(resp))
+	// Instead of sending the entire response immediately,
+	// use a polling mechanism to send chunks of text.
+	for _, cand := range resp.Candidates {
+		log.Println("here is at for loop level 1 ...")
+		for _, part := range cand.Content.Parts {
+			fmt.Fprintf(w, "%v", part)
+			log.Println(part)
+			w.(http.Flusher).Flush()           // Flush the response to the client
+			time.Sleep(100 * time.Millisecond) // Adjust the polling interval
+		}
+	}
+
 }
 
 // Print response
