@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"time"
 )
 
 // 设置 Gemini API 密钥
@@ -44,26 +44,35 @@ func GeminiChat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	// Generate response
-	resp, err := model.GenerateContent(ctx, genai.Text(string(body))) // 直接使用 body 内容
-	if err != nil {
-		http.Error(w, "Error generating response: %v", http.StatusInternalServerError)
-		return
-	}
+	// Generate response using GenerateContentStream
+	iter := model.GenerateContentStream(ctx, genai.Text(string(body)))
 
 	// Send response as plain text
 	// Instead of sending the entire response immediately,
 	// use a polling mechanism to send chunks of text.
-	for _, cand := range resp.Candidates {
-		log.Println("here is at for loop level 1 ...")
-		for _, part := range cand.Content.Parts {
-			fmt.Fprintf(w, "%v", part)
-			log.Println(part)
-			w.(http.Flusher).Flush()           // Flush the response to the client
-			time.Sleep(100 * time.Millisecond) // Adjust the polling interval
+	for {
+		resp, err := iter.Next()
+		if err == iterator.Done {
+			return // Return normally when iteration is done
 		}
-	}
+		if err != nil {
+			http.Error(w, "Error getting response from model", http.StatusInternalServerError)
+			return // Return on error
+		}
+		if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
+			http.Error(w, "Empty response from model", http.StatusInternalServerError)
+			return // Return on empty response
+		}
 
+		// Print each chunk as it arrives
+		for _, c := range resp.Candidates {
+			for _, p := range c.Content.Parts {
+				fmt.Fprintf(w, "%s ", p)
+				fmt.Println("chunk message:", p) // Print the chunk message
+			}
+		}
+		fmt.Fprint(w, "\n")
+	}
 }
 
 // Print response
