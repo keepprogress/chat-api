@@ -94,18 +94,6 @@ func GeminiChat(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Print response
-func printResponse(resp *genai.GenerateContentResponse) string {
-	var ret string
-	for _, cand := range resp.Candidates {
-		for _, part := range cand.Content.Parts {
-			ret = ret + fmt.Sprintf("%v", part)
-			log.Println(part)
-		}
-	}
-	return ret
-}
-
 func main() {
 	http.HandleFunc("/chat", GeminiChat)
 	log.Fatal(http.ListenAndServe(":8080", nil))
