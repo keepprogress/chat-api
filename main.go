@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/google/generative-ai-go/genai"
+	"github.com/gorilla/websocket"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
-	"io/ioutil"
 	"log"
 	"net/http"
 )
@@ -17,12 +17,25 @@ var geminiKey = "AIzaSyDXXHJH3QtY_Ap7rTYGVtT01EaU_W92vGw"
 // 设置聊天温度
 var ChatTemperture = 0.5
 
+// Upgrade to WebSocket
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for simplicity
+	},
+}
+
 // GeminiChat: Input a message and get the response string.
 func GeminiChat(w http.ResponseWriter, r *http.Request) {
-	// Add CORS headers
-	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:4200") // Replace with the actual origin of your client application
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	// Upgrade to WebSocket connection
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer conn.Close()
+
 	ctx := context.Background()
 	// Access your API key as an environment variable (see "Set up your API key" above)
 	client, err := genai.NewClient(ctx, option.WithAPIKey(geminiKey))
@@ -36,42 +49,48 @@ func GeminiChat(w http.ResponseWriter, r *http.Request) {
 	value := float32(ChatTemperture) // Set the temperature to 0.5
 	model.Temperature = &value
 
-	// Read the request body
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Error reading request body", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	// Generate response using GenerateContentStream
-	iter := model.GenerateContentStream(ctx, genai.Text(string(body)))
-
-	// Send response as plain text
-	// Instead of sending the entire response immediately,
-	// use a polling mechanism to send chunks of text.
 	for {
-		resp, err := iter.Next()
-		if err == iterator.Done {
-			return // Return normally when iteration is done
-		}
+		// Read message from WebSocket
+		messageType, message, err := conn.ReadMessage()
 		if err != nil {
-			http.Error(w, "Error getting response from model", http.StatusInternalServerError)
-			return // Return on error
-		}
-		if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
-			http.Error(w, "Empty response from model", http.StatusInternalServerError)
-			return // Return on empty response
+			log.Println(err)
+			break
 		}
 
-		// Print each chunk as it arrives
-		for _, c := range resp.Candidates {
-			for _, p := range c.Content.Parts {
-				fmt.Fprintf(w, "%s ", p)
-				fmt.Println("chunk message:", p) // Print the chunk message
+		// Handle received message
+		if messageType == websocket.TextMessage {
+			question := string(message)
+
+			// Generate response using GenerateContentStream
+			iter := model.GenerateContentStream(ctx, genai.Text(question))
+
+			// Send response as a stream of events through WebSocket
+			for {
+				resp, err := iter.Next()
+				if err == iterator.Done {
+					break // Return normally when iteration is done
+				}
+				if err != nil {
+					conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error getting response from model: %s", err.Error())))
+					break // Return on error
+				}
+				if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
+					conn.WriteMessage(websocket.TextMessage, []byte("Empty response from model"))
+					break // Return on empty response
+				}
+
+				// Send each chunk as a separate message
+				for _, c := range resp.Candidates {
+					for _, p := range c.Content.Parts {
+						// Convert Part to []byte
+						partStr := fmt.Sprintf("%v", p)
+						partBytes := []byte(partStr)
+						conn.WriteMessage(websocket.TextMessage, partBytes)
+						fmt.Println("chunk message:", p) // Print the chunk message
+					}
+				}
 			}
 		}
-		fmt.Fprint(w, "\n")
 	}
 }
 
