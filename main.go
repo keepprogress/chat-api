@@ -13,7 +13,7 @@ import (
 
 var geminiKey = "AIzaSyDXXHJH3QtY_Ap7rTYGVtT01EaU_W92vGw"
 
-var ChatTemperture = 0.5
+var ChatTemperature = 0.5
 
 // Upgrade to WebSocket
 var upgrader = websocket.Upgrader{
@@ -51,7 +51,7 @@ func reader(conn *websocket.Conn) {
 
 	// For text-only input, use the gemini-pro model
 	model := client.GenerativeModel("gemini-1.5-flash-latest")
-	value := float32(ChatTemperture) // Set the temperature to 0.5
+	value := float32(ChatTemperature) // Set the temperature to 0.5
 	model.Temperature = &value
 
 	for {
