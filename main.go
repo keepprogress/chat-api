@@ -9,9 +9,10 @@ import (
 	"google.golang.org/api/option"
 	"log"
 	"net/http"
+	"os"
 )
 
-var geminiKey = "AIzaSyDXXHJH3QtY_Ap7rTYGVtT01EaU_W92vGw"
+var geminiKey = os.Getenv("GENAI_API_KEY")
 
 var ChatTemperature = 0.5
 
@@ -101,5 +102,6 @@ func reader(conn *websocket.Conn) {
 
 func main() {
 	http.HandleFunc("/chat", wsEndpoint)
+	fmt.Println("started ...") // Print the chunk message
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
